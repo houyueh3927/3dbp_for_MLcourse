@@ -1,0 +1,255 @@
+import random
+from typing import List, Tuple
+
+class Item:
+    def __init__(self, width: float, height: float, depth: float, id: int):
+        self.width = width
+        self.height = height
+        self.depth = depth
+        self.id = id
+        self.rotation_axis = None  # 旋转轴（'x', 'y', 'z'）
+        self.rotation_angle = 0  # 旋转角度（0, 90, 180, 270）
+        self.position = None  # 物品位置
+
+    def rotate(self):
+        """随机旋转物品（支持3D旋转）"""
+        # 随机选择绕哪个轴旋转
+        axis = random.choice(['x', 'y', 'z'])
+        angle = random.choice([0, 90, 180, 270])  # 旋转角度
+
+        # 根据旋转轴和角度调整物品的尺寸
+        if axis == 'x':
+            if angle == 90:
+                self.height, self.depth = self.depth, self.height
+            elif angle == 180:
+                self.height, self.depth = self.depth, self.height
+                self.width, self.height = self.height, self.width
+            elif angle == 270:
+                self.height, self.depth = self.depth, self.height
+        elif axis == 'y':
+            if angle == 90:
+                self.width, self.depth = self.depth, self.width
+            elif angle == 180:
+                self.width, self.depth = self.depth, self.width
+                self.height, self.width = self.width, self.height
+            elif angle == 270:
+                self.width, self.depth = self.depth, self.width
+        elif axis == 'z':
+            if angle == 90:
+                self.width, self.height = self.height, self.width
+            elif angle == 180:
+                self.width, self.height = self.height, self.width
+                self.depth, self.height = self.height, self.depth
+            elif angle == 270:
+                self.width, self.height = self.height, self.width
+
+        # 保存旋转轴和旋转角度
+        self.rotation_axis = axis
+        self.rotation_angle = angle
+
+    def get_rotated_dimensions(self):
+        """返回旋转后的尺寸"""
+        return self.width, self.height, self.depth
+
+    def __repr__(self):
+        """输出时限制小数点后保留一位，并显示旋转轴和角度"""
+        return f"Item {self.id}: {self.width:.1f}x{self.height:.1f}x{self.depth:.1f} (Rotation: {self.rotation_angle}° around {self.rotation_axis}-axis)"
+
+class Bin:
+    def __init__(self, width: float, height: float, depth: float):
+        self.width = width
+        self.height = height
+        self.depth = depth
+        self.items: List[Item] = []
+        self.spaces = [(0, 0, 0, width, height, depth)]  # 存储剩余空间
+
+class BinPackingGA:
+    def __init__(self, bin_dimensions: Tuple[float, float, float], 
+                 items: List[Item], 
+                 population_size: int = 100,
+                 generations: int = 100):
+        self.bin_dimensions = bin_dimensions
+        self.items = items
+        self.population_size = population_size
+        self.generations = generations
+
+    def create_individual(self) -> List[int]:
+        # Create a random sequence of item indices
+        return random.sample(range(len(self.items)), len(self.items))
+
+    def create_population(self) -> List[List[int]]:
+        return [self.create_individual() for _ in range(self.population_size)]
+
+    def fits(self, item: Item, space: Tuple[float, float, float, float, float, float]) -> bool:
+        x, y, z, w, h, d = space
+        return (item.width <= w and item.height <= h and item.depth <= d)
+
+    def find_position(self, item: Item, bin: Bin) -> bool:
+        for i, space in enumerate(bin.spaces):
+            for _ in range(4):  
+                if self.fits(item, space):
+                    x, y, z, w, h, d = space
+                    item.position = (x, y, z)
+
+                    # 更新剩余空间
+                    bin.spaces.pop(i)
+
+                    # 将剩余空间分割
+                    if w - item.width > 0:
+                        bin.spaces.append((x + item.width, y, z, w - item.width, h, d))
+                    if h - item.height > 0:
+                        bin.spaces.append((x, y + item.height, z, item.width, h - item.height, d))
+                    if d - item.depth > 0:
+                        bin.spaces.append((x, y, z + item.depth, item.width, item.height, d - item.depth))
+
+                    bin.items.append(item)
+                    return True
+                else:
+                    item.rotate()  
+        return False
+
+    def fitness(self, individual: List[int]) -> float:
+        bin = Bin(*self.bin_dimensions)
+        packed_items = 0
+        total_volume = 0
+        
+        for idx in individual:
+            item = self.items[idx]
+            if self.find_position(item, bin):
+                packed_items += 1
+                total_volume += item.width * item.height * item.depth
+
+        bin_volume = self.bin_dimensions[0] * self.bin_dimensions[1] * self.bin_dimensions[2]
+        return packed_items + (total_volume / bin_volume)
+
+    def crossover(self, parent1: List[int], parent2: List[int]) -> List[int]:
+        # Order crossover (OX)
+        size = len(parent1)
+        start, end = sorted(random.sample(range(size), 2))
+        
+        child = [-1] * size
+        # Copy subset from parent1
+        child[start:end] = parent1[start:end]
+        
+        # Fill remaining positions with parent2's elements
+        current_pos = end
+        for item in parent2:
+            if item not in child:
+                if current_pos >= size:
+                    current_pos = 0
+                while child[current_pos] != -1:
+                    current_pos += 1
+                    if current_pos >= size:
+                        current_pos = 0
+                child[current_pos] = item
+                
+        return child
+
+    def mutate(self, individual: List[int], mutation_rate: float = 0.1) -> List[int]:
+        if random.random() < mutation_rate:
+            idx1, idx2 = random.sample(range(len(individual)), 2)
+            individual[idx1], individual[idx2] = individual[idx2], individual[idx1]
+        return individual
+
+    def solve(self) -> Tuple[List[int], float]:
+        population = self.create_population()
+        best_solution = None
+        best_fitness = float('-inf')
+
+        for generation in range(self.generations):
+            # Evaluate fitness for all individuals
+            fitness_scores = [(ind, self.fitness(ind)) for ind in population]
+            fitness_scores.sort(key=lambda x: x[1], reverse=True)
+
+            # Update best solution
+            if fitness_scores[0][1] > best_fitness:
+                best_solution = fitness_scores[0][0]
+                best_fitness = fitness_scores[0][1]
+
+            # Select parents for next generation
+            parents = [ind for ind, _ in fitness_scores[:self.population_size//2]]
+            
+            # Create next generation
+            new_population = parents.copy()
+            while len(new_population) < self.population_size:
+                parent1, parent2 = random.sample(parents, 2)
+                child = self.crossover(parent1, parent2)
+                child = self.mutate(child)
+                new_population.append(child)
+            
+            population = new_population
+
+        return best_solution, best_fitness
+
+# 生成器代码
+def generate_items(bin_size=(100, 100, 100)):
+    items = []
+    current_id = 0  # 使用一个计数器确保ID唯一，按顺序递增
+    
+    # 初始化物品列表，开始时只有一个物品 (100, 100, 100)
+    initial_item = Item(bin_size[0], bin_size[1], bin_size[2], id=current_id)
+    items.append(initial_item)
+    current_id += 1  # 更新ID
+
+    # 随机生成物品数目N
+    N = random.randint(10, 50)
+
+    # 生成物品直到数量达到N
+    while len(items) < N:
+        # 随机从现有物品中弹出一个物品
+        item = random.choice(items)
+        items.remove(item)  # 弹出并移除选中的物品
+        axis = random.choice([0, 1, 2])  # 随机选择一个轴进行分割
+        ratio = random.uniform(0.1, 0.9)  # 随机生成分割比例
+
+        if axis == 0:  # 按 width 分割
+            item1 = Item(item.width * ratio, item.height, item.depth, id=current_id)
+            item2 = Item(item.width * (1 - ratio), item.height, item.depth, id=current_id + 1)
+        elif axis == 1:  # 按 height 分割
+            item1 = Item(item.width, item.height * ratio, item.depth, id=current_id)
+            item2 = Item(item.width, item.height * (1 - ratio), item.depth, id=current_id + 1)
+        else:  # 按 depth 分割
+            item1 = Item(item.width, item.height, item.depth * ratio, id=current_id)
+            item2 = Item(item.width, item.height, item.depth * (1 - ratio), id=current_id + 1)
+        
+        # 随机旋转新生成的物品
+        item1.rotate()
+        item2.rotate()
+        
+        # 添加新物品到列表，并更新ID
+        items.append(item1)
+        items.append(item2)
+        current_id += 2  # 更新ID（每次生成两个新物品）
+
+        # 调整集合中所有后续物品的 ID
+        for i in range(len(items)):
+            items[i].id = i  # 重新按顺序排列ID
+
+    return items
+
+
+# 示例使用
+def main():
+    # 使用生成器生成物品集合
+    items = generate_items(bin_size=(100, 100, 100))
+    
+    # 创建并运行遗传算法
+    bin_dimensions = (100, 100, 100)
+    ga = BinPackingGA(bin_dimensions, items)
+    solution, fitness = ga.solve()
+    
+    # 打印
+    print(f"Best solution sequence: {solution}")
+    print(f"Fitness score: {fitness:.1f}")
+    
+    # Pack items according to best solution
+    bin = Bin(*bin_dimensions)
+    for idx in solution:
+        item = items[idx]
+        if ga.find_position(item, bin):
+            print(f"Item {item.id} ({item.width:.1f},{item.height:.1f},{item.depth:.1f},{item.rotation_angle}° around {item.rotation_axis}-axis) packed at position {item.position}")
+        else:
+            print(f"Item {item.id} could not be packed")
+
+if __name__ == "__main__":
+    main()
