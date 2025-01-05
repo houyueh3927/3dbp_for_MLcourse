@@ -1,10 +1,11 @@
+#实验在kaggle上运行
 !pip install py3dbp
 from py3dbp import Packer, Bin, Item
 import datasets
 from datasets import load_dataset
 packer = Packer()
 
-for i in range (0,100):    
+for i in range (0,100):    #可以调整每种bin的数量
     packer.add_bin(Bin('binA %d' %(i), 35, 23, 13, 999))
     packer.add_bin(Bin('binB %d' %(i), 37, 26, 13, 999))
     packer.add_bin(Bin('binC %d' %(i), 38, 26, 13, 999))
@@ -14,22 +15,18 @@ for i in range (0,100):
     packer.add_bin(Bin('binG %d' %(i), 52, 40, 17, 999))
     packer.add_bin(Bin('binH %d' %(i), 54, 45, 36, 999))
 
-df_list = datasets.load_dataset("csv",data_dir="/kaggle/input/task3data",data_files="task3.csv", split = "train")
-for j in range (1,1000) :
+df_list = datasets.load_dataset("csv",data_dir="/kaggle/input/task3data",data_files="task3.csv", split = "train")#实验在kaggle上进行，将数据导入到input上
+for j in range (1,1000) :#由于list的长度有限，因此只尝试用1000个物品
     for qtyj in range (0,df_list['qty'][j]):
         packer.add_item(Item(df_list['sta_code'][j]+' '+df_list['sku_code'][j], df_list['长(CM)'][j], df_list['宽(CM)'][j], df_list['高(CM)'][j], 0.1))
     
-print(df_list[:1])
-print(df_list['sta_code'][100])
-
-
-
 packer.pack(distribute_items=True)
-
+num=0
 for b in packer.bins:
     if len(b.items)==0:
         continue
     print(":::::::::::", b.string())
+    num+=1
 
     print("FITTED ITEMS:")
     for item in b.items:
@@ -38,3 +35,4 @@ for b in packer.bins:
 
     print("***************************************************")
     print("***************************************************")
+print("共使用 %d 个箱子" %(num))
